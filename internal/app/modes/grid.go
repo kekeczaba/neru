@@ -1,13 +1,12 @@
 package modes
 
 import (
-	"fmt"
+	"context"
 	"image"
 	"strings"
 
 	"github.com/y3owk1n/neru/internal/domain"
-	"github.com/y3owk1n/neru/internal/features/grid"
-	infra "github.com/y3owk1n/neru/internal/infra/accessibility"
+	domainGrid "github.com/y3owk1n/neru/internal/domain/grid"
 	"github.com/y3owk1n/neru/internal/infra/bridge"
 	"github.com/y3owk1n/neru/internal/ui/coordinates"
 	"go.uber.org/zap"
@@ -33,17 +32,41 @@ func (h *Handler) activateGridModeWithAction(action *string) {
 
 	// Always resize overlay to the active screen (where mouse is) before drawing grid.
 	// This ensures proper positioning when switching between multiple displays.
-	h.Renderer.ResizeActive()
+	h.OverlayManager.ResizeToActiveScreenSync()
 	h.State.SetGridOverlayNeedsRefresh(false)
 
-	err = h.SetupGrid()
-	if err != nil {
-		h.Logger.Error("Failed to setup grid",
-			zap.Error(err),
-			zap.String("action", actionString),
-			zap.Any("screen_bounds", bridge.GetActiveScreenBounds()))
+	// Initialize grid manager (needed for input handling)
+	gridInstance := h.createGridInstance()
+	h.updateGridOverlayConfig()
+
+	// Reset the grid manager state when setting up the grid
+	if h.Grid.Manager != nil {
+		h.Grid.Manager.Reset()
+	}
+
+	h.initializeGridManager(gridInstance)
+	h.Grid.Router = domainGrid.NewRouter(h.Grid.Manager, h.Logger)
+
+	// 2. Show grid using new service
+	// We use the grid instance bounds to determine rows/cols if needed,
+	// but for now we just show the overlay and let the manager handle drawing
+	// Show the grid overlay
+
+	// The adapter's ShowGrid implementation switches mode to "grid"
+	// The actual drawing is handled by the overlay which is already set up
+
+	// Wait, the service calls adapter.ShowGrid which calls manager.SwitchTo("grid")
+	// But we still need to populate the grid overlay with data
+
+	// Draw the grid to populate the overlay
+	initErr := h.Renderer.DrawGrid(gridInstance, "")
+	if initErr != nil {
+		h.Logger.Error("Failed to draw grid", zap.Error(initErr))
 		return
 	}
+
+	// Show the overlay (the grid is already drawn with proper style)
+	h.OverlayManager.Show()
 
 	// Store pending action if provided
 	h.Grid.Context.SetPendingAction(action)
@@ -57,37 +80,8 @@ func (h *Handler) activateGridModeWithAction(action *string) {
 	h.Logger.Info("Type a grid label to select a location")
 }
 
-// SetupGrid generates grid and draws it.
-func (h *Handler) SetupGrid() error {
-	// Create grid with active screen bounds (screen containing mouse cursor).
-	// This ensures proper multi-monitor support.
-	gridInstance := h.createGridInstance()
-
-	h.updateGridOverlayConfig()
-
-	// Ensure the overlay is properly sized for the active screen
-	h.OverlayManager.ResizeToActiveScreenSync()
-
-	// Reset the grid manager state when setting up the grid
-	if h.Grid.Manager != nil {
-		h.Grid.Manager.Reset()
-	}
-
-	h.initializeGridManager(gridInstance)
-
-	h.Grid.Router = grid.NewRouter(h.Grid.Manager, h.Logger)
-
-	initErr := h.Renderer.DrawGrid(gridInstance, "")
-	if initErr != nil {
-		return fmt.Errorf("failed to draw grid: %w", initErr)
-	}
-	h.Renderer.Show()
-
-	return nil
-}
-
 // createGridInstance creates a new grid instance with proper bounds and characters.
-func (h *Handler) createGridInstance() *grid.Grid {
+func (h *Handler) createGridInstance() *domainGrid.Grid {
 	screenBounds := bridge.GetActiveScreenBounds()
 
 	// Normalize bounds to window-local coordinates using helper function
@@ -97,7 +91,7 @@ func (h *Handler) createGridInstance() *grid.Grid {
 	if strings.TrimSpace(characters) == "" {
 		characters = h.Config.Hints.HintCharacters
 	}
-	gridInstance := grid.NewGrid(characters, bounds, h.Logger)
+	gridInstance := domainGrid.NewGrid(characters, bounds, h.Logger)
 	h.Grid.Context.SetGridInstanceValue(gridInstance)
 
 	return gridInstance
@@ -109,7 +103,7 @@ func (h *Handler) updateGridOverlayConfig() {
 }
 
 // initializeGridManager initializes the grid manager with the new grid instance.
-func (h *Handler) initializeGridManager(gridInstance *grid.Grid) {
+func (h *Handler) initializeGridManager(gridInstance *domainGrid.Grid) {
 	const defaultGridCharacters = "asdfghjkl"
 
 	// Defensive check for grid instance
@@ -117,7 +111,7 @@ func (h *Handler) initializeGridManager(gridInstance *grid.Grid) {
 		h.Logger.Warn("Grid instance is nil, creating with default bounds")
 		screenBounds := bridge.GetActiveScreenBounds()
 		bounds := image.Rect(0, 0, screenBounds.Dx(), screenBounds.Dy())
-		gridInstance = grid.NewGrid(h.Config.Grid.Characters, bounds, h.Logger)
+		gridInstance = domainGrid.NewGrid(h.Config.Grid.Characters, bounds, h.Logger)
 	}
 
 	// Subgrid configuration and keys (fallback to grid characters): always 3x3
@@ -141,7 +135,7 @@ func (h *Handler) initializeGridManager(gridInstance *grid.Grid) {
 	const subRows = 3
 	const subCols = 3
 
-	h.Grid.Manager = grid.NewManager(
+	h.Grid.Manager = domainGrid.NewManager(
 		gridInstance,
 		subRows,
 		subCols,
@@ -157,13 +151,13 @@ func (h *Handler) initializeGridManager(gridInstance *grid.Grid) {
 
 			// special case to handle only when exiting subgrid
 			if forceRedraw {
-				h.Renderer.Clear()
+				h.OverlayManager.Clear()
 				gridErr := h.Renderer.DrawGrid(gridInstance, input)
 				if gridErr != nil {
 					h.Logger.Error("Failed to redraw grid", zap.Error(gridErr))
 					return
 				}
-				h.Renderer.Show()
+				h.OverlayManager.Show()
 			}
 
 			// Set hideUnmatched based on whether we have input and the config setting
@@ -171,7 +165,7 @@ func (h *Handler) initializeGridManager(gridInstance *grid.Grid) {
 			h.Renderer.SetHideUnmatched(hideUnmatched)
 			h.Renderer.UpdateGridMatches(input)
 		},
-		func(cell *grid.Cell) {
+		func(cell *domainGrid.Cell) {
 			// Defensive check for cell
 			if cell == nil {
 				h.Logger.Warn("Attempted to show subgrid for nil cell")
@@ -179,7 +173,11 @@ func (h *Handler) initializeGridManager(gridInstance *grid.Grid) {
 			}
 
 			// Move mouse to center of cell before showing subgrid
-			infra.MoveMouseToPoint(cell.Center)
+			ctx := context.Background()
+			err := h.ActionService.MoveCursorToPoint(ctx, cell.Center)
+			if err != nil {
+				h.Logger.Error("Failed to move cursor", zap.Error(err))
+			}
 
 			// Draw 3x3 subgrid inside selected cell
 			h.Renderer.ShowSubgrid(cell)

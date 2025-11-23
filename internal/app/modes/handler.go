@@ -1,8 +1,8 @@
 package modes
 
 import (
-	"github.com/y3owk1n/neru/internal/app/accessibility"
 	"github.com/y3owk1n/neru/internal/app/components"
+	"github.com/y3owk1n/neru/internal/application/services"
 	"github.com/y3owk1n/neru/internal/config"
 	"github.com/y3owk1n/neru/internal/domain/state"
 	"github.com/y3owk1n/neru/internal/ui"
@@ -16,9 +16,13 @@ type Handler struct {
 	Logger         *zap.Logger
 	State          *state.AppState
 	Cursor         *state.CursorState
-	OverlayManager *overlay.Manager
+	OverlayManager overlay.ManagerInterface
 	Renderer       *ui.OverlayRenderer
-	Accessibility  *accessibility.Service
+	// New Services
+	HintService   *services.HintService
+	GridService   *services.GridService
+	ActionService *services.ActionService
+	ScrollService *services.ScrollService
 
 	Hints  *components.HintsComponent
 	Grid   *components.GridComponent
@@ -37,10 +41,13 @@ func NewHandler(
 	log *zap.Logger,
 	st *state.AppState,
 	cursor *state.CursorState,
-	overlayManager *overlay.Manager,
+	overlayManager overlay.ManagerInterface,
 	renderer *ui.OverlayRenderer,
-	accessibility *accessibility.Service,
-	hints *components.HintsComponent,
+	hintService *services.HintService,
+	gridService *services.GridService,
+	actionService *services.ActionService,
+	scrollService *services.ScrollService,
+	hintsComponent *components.HintsComponent,
 	grid *components.GridComponent,
 	scroll *components.ScrollComponent,
 	action *components.ActionComponent,
@@ -55,8 +62,11 @@ func NewHandler(
 		Cursor:          cursor,
 		OverlayManager:  overlayManager,
 		Renderer:        renderer,
-		Accessibility:   accessibility,
-		Hints:           hints,
+		HintService:     hintService,
+		GridService:     gridService,
+		ActionService:   actionService,
+		ScrollService:   scrollService,
+		Hints:           hintsComponent,
 		Grid:            grid,
 		Scroll:          scroll,
 		Action:          action,

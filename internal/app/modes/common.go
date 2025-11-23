@@ -1,10 +1,9 @@
 package modes
 
 import (
-	"image"
+	"context"
 
 	"github.com/y3owk1n/neru/internal/domain"
-	infra "github.com/y3owk1n/neru/internal/infra/accessibility"
 	"github.com/y3owk1n/neru/internal/infra/bridge"
 	"github.com/y3owk1n/neru/internal/ui/coordinates"
 	"github.com/y3owk1n/neru/internal/ui/overlay"
@@ -89,11 +88,10 @@ func (h *Handler) handleTabKey() {
 			h.Grid.Context.SetInActionMode(false)
 			h.OverlayManager.Clear()
 			h.OverlayManager.Hide()
-			// Re-setup grid to show grid again with proper refresh
-			err := h.SetupGrid()
-			if err != nil {
-				h.Logger.Error("Failed to re-setup grid", zap.Error(err))
-			}
+
+			// Re-activate grid mode (similar to hints mode pattern)
+			h.activateGridModeWithAction(nil)
+
 			h.Logger.Info("Switched back to grid overlay mode")
 			h.overlaySwitch(overlay.ModeGrid)
 		} else {
@@ -151,8 +149,14 @@ func (h *Handler) handleModeSpecificKey(key string) {
 			return
 		}
 
-		// Route hint-specific keys via hints router
-		res := h.Hints.Router.RouteKey(key, h.Hints.Context.SelectedHint != nil)
+		// Route hint-specific keys via domain hints router
+		if h.Hints.Context.Router == nil {
+			h.Logger.Error("Hints router is nil")
+			h.ExitMode()
+			return
+		}
+
+		res := h.Hints.Context.Router.RouteKey(key)
 		if res.Exit {
 			h.ExitMode()
 			return
@@ -161,25 +165,23 @@ func (h *Handler) handleModeSpecificKey(key string) {
 		// Hint input processed by router; if exact match, perform action
 		if res.ExactHint != nil {
 			hint := res.ExactHint
-			info, err := hint.Element.Element.GetInfo()
-			if err != nil {
-				h.Logger.Error("Failed to get element info", zap.Error(err))
-				h.ExitMode()
-				return
-			}
-			center := image.Point{
-				X: info.Position.X + info.Size.X/2,
-				Y: info.Position.Y + info.Size.Y/2,
-			}
+			// Use the domain element's center point
+			center := hint.Element().Center()
 
-			h.Logger.Info("Found element", zap.String("label", h.Hints.Manager.GetInput()))
-			infra.MoveMouseToPoint(center)
+			h.Logger.Info("Found element", zap.String("label", hint.Label()))
+			ctx := context.Background()
+			err := h.ActionService.MoveCursorToPoint(ctx, center)
+			if err != nil {
+				h.Logger.Error("Failed to move cursor", zap.Error(err))
+			}
 
 			// Check if there's a pending action to execute
 			pendingAction := h.Hints.Context.GetPendingAction()
 			if pendingAction != nil {
 				h.Logger.Info("Executing pending action", zap.String("action", *pendingAction))
-				err := h.Accessibility.PerformActionAtPoint(*pendingAction, center)
+				// Use ActionService
+				ctx := context.Background()
+				err := h.ActionService.PerformAction(ctx, *pendingAction, center)
 				if err != nil {
 					h.Logger.Error("Failed to perform pending action", zap.Error(err))
 				}
@@ -188,13 +190,9 @@ func (h *Handler) handleModeSpecificKey(key string) {
 				return
 			}
 
-			if h.Hints.Manager != nil {
-				h.Hints.Manager.Reset()
-			}
-			h.Hints.Context.SetSelectedHint(nil)
-
-			h.activateHintModeWithAction(nil)
-
+			// No pending action - re-activate hints mode to show hints again
+			h.Logger.Info("Re-activating hints mode after cursor movement")
+			h.activateHintModeInternal(false, nil)
 			return
 		}
 	case domain.ModeGrid:
@@ -223,13 +221,19 @@ func (h *Handler) handleModeSpecificKey(key string) {
 				zap.Int("x", absolutePoint.X),
 				zap.Int("y", absolutePoint.Y),
 			)
-			infra.MoveMouseToPoint(absolutePoint)
+			ctx := context.Background()
+			err := h.ActionService.MoveCursorToPoint(ctx, absolutePoint)
+			if err != nil {
+				h.Logger.Error("Failed to move cursor", zap.Error(err))
+			}
 
 			// Check if there's a pending action to execute
 			pendingAction := h.Grid.Context.GetPendingAction()
 			if pendingAction != nil {
 				h.Logger.Info("Executing pending action", zap.String("action", *pendingAction))
-				err := h.Accessibility.PerformActionAtPoint(*pendingAction, absolutePoint)
+				// Use ActionService
+				ctx := context.Background()
+				err := h.ActionService.PerformAction(ctx, *pendingAction, absolutePoint)
 				if err != nil {
 					h.Logger.Error("Failed to perform pending action", zap.Error(err))
 				}
@@ -253,7 +257,7 @@ func (h *Handler) ExitMode() {
 		return
 	}
 
-	h.Logger.Info("Exiting current mode", zap.String("mode", h.getCurrModeString()))
+	h.Logger.Info("Exiting current mode", zap.String("mode", h.GetCurrModeString()))
 
 	h.performModeSpecificCleanup()
 	h.performCommonCleanup()
@@ -275,11 +279,7 @@ func (h *Handler) performModeSpecificCleanup() {
 // cleanupHintsMode handles cleanup for hints mode.
 func (h *Handler) cleanupHintsMode() {
 	h.Hints.Context.SetInActionMode(false)
-
-	if h.Hints.Manager != nil {
-		h.Hints.Manager.Reset()
-	}
-	h.Hints.Context.SetSelectedHint(nil)
+	h.Hints.Context.Reset()
 
 	h.OverlayManager.Clear()
 	h.OverlayManager.Hide()
@@ -339,7 +339,11 @@ func (h *Handler) handleCursorRestoration() {
 			h.Cursor.GetInitialScreenBounds(),
 			currentBounds,
 		)
-		infra.MoveMouseToPoint(target)
+		ctx := context.Background()
+		err := h.ActionService.MoveCursorToPoint(ctx, target)
+		if err != nil {
+			h.Logger.Error("Failed to restore cursor position", zap.Error(err))
+		}
 	}
 	h.Cursor.Reset()
 	// Always reset scroll context regardless of whether we performed cursor restoration.
@@ -348,8 +352,8 @@ func (h *Handler) handleCursorRestoration() {
 	h.Scroll.Context.SetLastKey("")
 }
 
-// getCurrModeString returns the current mode as a string.
-func (h *Handler) getCurrModeString() string {
+// GetCurrModeString returns the current mode as a string.
+func (h *Handler) GetCurrModeString() string {
 	return domain.GetModeString(h.State.CurrentMode())
 }
 
@@ -358,7 +362,12 @@ func (h *Handler) CaptureInitialCursorPosition() {
 	if h.Cursor.IsCaptured() {
 		return
 	}
-	pos := infra.GetCurrentCursorPosition()
+	ctx := context.Background()
+	pos, err := h.ActionService.GetCursorPosition(ctx)
+	if err != nil {
+		h.Logger.Error("Failed to get cursor position", zap.Error(err))
+		return
+	}
 	bounds := bridge.GetActiveScreenBounds()
 	h.Cursor.Capture(pos, bounds)
 }
@@ -382,7 +391,12 @@ func (h *Handler) shouldRestoreCursorOnExit() bool {
 
 // handleActionKey handles action keys for both hints and grid modes.
 func (h *Handler) handleActionKey(key string, mode string) {
-	cursorPos := infra.GetCurrentCursorPosition()
+	ctx := context.Background()
+	cursorPos, err := h.ActionService.GetCursorPosition(ctx)
+	if err != nil {
+		h.Logger.Error("Failed to get cursor position", zap.Error(err))
+		return
+	}
 
 	var act string
 	switch key {
@@ -405,7 +419,9 @@ func (h *Handler) handleActionKey(key string, mode string) {
 		h.Logger.Debug("Unknown "+mode+" action key", zap.String("key", key))
 		return
 	}
-	err := h.Accessibility.PerformActionAtPoint(act, cursorPos)
+
+	// Use ActionService
+	err = h.ActionService.PerformAction(ctx, act, cursorPos)
 	if err != nil {
 		h.Logger.Error("Failed to perform action", zap.Error(err))
 	}

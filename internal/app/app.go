@@ -1,24 +1,27 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/y3owk1n/neru/internal/app/accessibility"
+	accAdapter "github.com/y3owk1n/neru/internal/adapter/accessibility"
+	ovAdapter "github.com/y3owk1n/neru/internal/adapter/overlay"
 	"github.com/y3owk1n/neru/internal/app/components"
 	"github.com/y3owk1n/neru/internal/app/modes"
+	"github.com/y3owk1n/neru/internal/application/services"
 	"github.com/y3owk1n/neru/internal/config"
 	"github.com/y3owk1n/neru/internal/domain"
+	domainHint "github.com/y3owk1n/neru/internal/domain/hint"
 	"github.com/y3owk1n/neru/internal/domain/state"
 	"github.com/y3owk1n/neru/internal/features/grid"
 	"github.com/y3owk1n/neru/internal/features/hints"
 	"github.com/y3owk1n/neru/internal/features/scroll"
 	infra "github.com/y3owk1n/neru/internal/infra/accessibility"
-	"github.com/y3owk1n/neru/internal/infra/appwatcher"
 	"github.com/y3owk1n/neru/internal/infra/bridge"
 	"github.com/y3owk1n/neru/internal/infra/eventtap"
 	"github.com/y3owk1n/neru/internal/infra/ipc"
+	"github.com/y3owk1n/neru/internal/infra/metrics"
 	"github.com/y3owk1n/neru/internal/ui"
-	"github.com/y3owk1n/neru/internal/ui/overlay"
 	"go.uber.org/zap"
 )
 
@@ -42,14 +45,21 @@ type App struct {
 	cursor *state.CursorState
 
 	// Core services
-	overlayManager *overlay.Manager
-	hotkeyManager  hotkeyService
-	eventTap       eventTap
-	ipcServer      ipcServer
-	appWatcher     *appwatcher.Watcher
+	overlayManager OverlayManager
+	hotkeyManager  HotkeyService
+	eventTap       EventTap
+	ipcServer      IPCServer
+	appWatcher     Watcher
+	metrics        *metrics.Collector
 
-	accessibility *accessibility.Service
-	modes         *modes.Handler
+	modes *modes.Handler
+
+	// New Architecture Services
+	hintService   *services.HintService
+	gridService   *services.GridService
+	actionService *services.ActionService
+	scrollService *services.ScrollService
+	configService *config.Service
 
 	// Feature components
 	hintsComponent  *components.HintsComponent
@@ -60,16 +70,22 @@ type App struct {
 	// Renderer
 	renderer *ui.OverlayRenderer
 
-	// Command handlers
-	cmdHandlers map[string]func(ipc.Command) ipc.Response
+	// IPC Controller
+	ipcController *IPCController
 }
 
-// New creates a new App instance.
-func New(cfg *config.Config) (*App, error) {
-	return newWithDeps(cfg, nil)
+// New creates a new application instance with default dependencies.
+func New(cfg *config.Config, configPath string) (*App, error) {
+	return newWithDeps(cfg, configPath, nil)
 }
 
-func newWithDeps(cfg *config.Config, deps *deps) (*App, error) {
+// NewWithDeps creates a new application instance with injected dependencies.
+// This is primarily used for testing.
+func NewWithDeps(cfg *config.Config, configPath string, deps *deps) (*App, error) {
+	return newWithDeps(cfg, configPath, deps)
+}
+
+func newWithDeps(cfg *config.Config, configPath string, deps *deps) (*App, error) {
 	// Initialize logger
 	log, err := initializeLogger(cfg)
 	if err != nil {
@@ -77,7 +93,7 @@ func newWithDeps(cfg *config.Config, deps *deps) (*App, error) {
 	}
 
 	// Initialize overlay manager
-	overlayManager := initializeOverlayManager(log)
+	overlayManager := initializeOverlayManager(deps, log)
 
 	// Initialize and check accessibility infrastructure
 	err = initializeAccessibility(cfg, log)
@@ -85,25 +101,71 @@ func newWithDeps(cfg *config.Config, deps *deps) (*App, error) {
 		return nil, err
 	}
 
-	// Initialize accessibility service
-	accService := accessibility.NewService(cfg, log)
-
-	// Initialize services
-	appWatcher := initializeAppWatcher(log)
+	// Initialize infrastructure services
+	appWatcher := initializeAppWatcher(deps, log)
 	hotkeySvc := initializeHotkeyService(deps, log)
+
+	// --- New Architecture Initialization ---
+
+	// 1. Initialize Config Service
+	cfgService := config.NewService(cfg, configPath)
+
+	// 2. Initialize Metrics
+	metricsCollector := metrics.NewCollector()
+
+	// 3. Initialize Adapters
+	// Accessibility Adapter
+	// Note: We need to get excluded bundles and clickable roles from config
+	excludedBundles := cfg.General.ExcludedApps
+	clickableRoles := cfg.Hints.ClickableRoles
+	baseAccAdapter := accAdapter.NewAdapter(log, excludedBundles, clickableRoles)
+	// Wrap with metrics decorator
+	accAdapter := accAdapter.NewMetricsDecorator(baseAccAdapter, metricsCollector)
+
+	// Overlay Adapter
+	baseOvAdapter := ovAdapter.NewAdapter(overlayManager, log)
+	// Wrap with metrics decorator
+	ovAdapter := ovAdapter.NewMetricsDecorator(baseOvAdapter, metricsCollector)
+
+	// 4. Initialize Domain Services
+	// Hint Generator
+	hintGen, err := domainHint.NewAlphabetGenerator(cfg.Hints.HintCharacters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create hint generator: %w", err)
+	}
+
+	// Hint Service
+	hintService := services.NewHintService(accAdapter, ovAdapter, hintGen, log)
+
+	// Grid Service
+	gridService := services.NewGridService(ovAdapter, log)
+
+	// Action Service
+	actionService := services.NewActionService(accAdapter, ovAdapter, cfg.Action, log)
+
+	// Scroll Service
+	scrollService := services.NewScrollService(accAdapter, ovAdapter, cfg.Scroll, log)
 
 	// Create app instance with basic dependencies
 	app := &App{
 		config:         cfg,
+		ConfigPath:     configPath,
 		logger:         log,
 		state:          state.NewAppState(),
 		cursor:         state.NewCursorState(cfg.General.RestoreCursorPosition),
 		overlayManager: overlayManager,
 		hotkeyManager:  hotkeySvc,
 		appWatcher:     appWatcher,
-		accessibility:  accService,
-		renderer:       &ui.OverlayRenderer{}, // Will be properly initialized later
-		cmdHandlers:    make(map[string]func(ipc.Command) ipc.Response),
+		metrics:        metricsCollector,
+
+		// Inject new services
+		hintService:   hintService,
+		gridService:   gridService,
+		actionService: actionService,
+		scrollService: scrollService,
+		configService: cfgService,
+
+		renderer: &ui.OverlayRenderer{}, // Will be properly initialized later
 	}
 
 	// Initialize components using factory functions
@@ -134,10 +196,28 @@ func newWithDeps(cfg *config.Config, deps *deps) (*App, error) {
 	// Initialize mode handler
 	app.modes = modes.NewHandler(
 		cfg, log, app.state, app.cursor, overlayManager, app.renderer,
-		accService,
+		app.hintService,
+		app.gridService,
+		app.actionService,
+		app.scrollService,
 		app.hintsComponent, app.gridComponent, app.scrollComponent, app.actionComponent,
 		app.enableEventTap, app.disableEventTap,
 		func() { app.refreshHotkeysForAppOrCurrent("") },
+	)
+
+	// Initialize IPC Controller
+	app.ipcController = NewIPCController(
+		hintService,
+		gridService,
+		actionService,
+		scrollService,
+		cfgService,
+		app.state,
+		app.config,
+		app.modes,
+		log,
+		metricsCollector,
+		configPath,
 	)
 
 	// Initialize event tap
@@ -155,13 +235,13 @@ func newWithDeps(cfg *config.Config, deps *deps) (*App, error) {
 
 	// Initialize IPC server
 	if deps != nil && deps.IPCServerFactory != nil {
-		srv, srvErr := deps.IPCServerFactory.New(app.handleIPCCommand, log)
+		srv, srvErr := deps.IPCServerFactory.New(app.ipcController.HandleCommand, log)
 		if srvErr != nil {
 			return nil, fmt.Errorf("failed to create IPC server: %w", srvErr)
 		}
 		app.ipcServer = srv
 	} else {
-		srv, srvErr := ipc.NewServer(app.handleIPCCommand, log)
+		srv, srvErr := ipc.NewServer(app.ipcController.HandleCommand, log)
 		if srvErr != nil {
 			return nil, fmt.Errorf("failed to create IPC server: %w", srvErr)
 		}
@@ -170,9 +250,6 @@ func newWithDeps(cfg *config.Config, deps *deps) (*App, error) {
 
 	// Register overlays with overlay manager
 	app.registerOverlays()
-
-	// Register IPC command handlers
-	app.registerCommandHandlers()
 
 	return app, nil
 }
@@ -265,13 +342,7 @@ func (a *App) Config() *config.Config { return a.config }
 func (a *App) Logger() *zap.Logger { return a.logger }
 
 // OverlayManager returns the overlay manager.
-func (a *App) OverlayManager() *overlay.Manager { return a.overlayManager }
-
-// HintGenerator returns the hint generator.
-func (a *App) HintGenerator() *hints.Generator { return a.hintsComponent.Generator }
-
-// HintManager returns the hint manager.
-func (a *App) HintManager() *hints.Manager { return a.hintsComponent.Manager }
+func (a *App) OverlayManager() OverlayManager { return a.overlayManager }
 
 // HintsContext returns the hints context.
 func (a *App) HintsContext() *hints.Context { return a.hintsComponent.Context }
@@ -288,38 +359,29 @@ func (a *App) SetHintOverlayNeedsRefresh(value bool) { a.state.SetHintOverlayNee
 // CaptureInitialCursorPosition captures the initial cursor position.
 func (a *App) CaptureInitialCursorPosition() { a.modes.CaptureInitialCursorPosition() }
 
-// UpdateRolesForCurrentApp updates roles for the current app.
-func (a *App) UpdateRolesForCurrentApp() { a.accessibility.UpdateRolesForCurrentApp() }
-
-// CollectElements collects elements.
-func (a *App) CollectElements() []*infra.TreeNode { return a.accessibility.CollectElements() }
-
 // IsFocusedAppExcluded checks if the focused app is excluded.
-func (a *App) IsFocusedAppExcluded() bool { return a.accessibility.IsFocusedAppExcluded() }
+func (a *App) IsFocusedAppExcluded() bool {
+	// Use ActionService to check exclusion
+	ctx := context.Background()
+	excluded, err := a.actionService.IsFocusedAppExcluded(ctx)
+	if err != nil {
+		a.logger.Warn("Failed to check exclusion", zap.Error(err))
+		return false
+	}
+	return excluded
+}
 
 // ExitMode exits the current mode.
 func (a *App) ExitMode() { a.modes.ExitMode() }
 
-// GridManager returns the grid manager.
-func (a *App) GridManager() *grid.Manager { return a.gridComponent.Manager }
-
 // GridContext returns the grid context.
 func (a *App) GridContext() *grid.Context { return a.gridComponent.Context }
-
-// GridRouter returns the grid router.
-func (a *App) GridRouter() *grid.Router { return a.gridComponent.Router }
 
 // ScrollContext returns the scroll context.
 func (a *App) ScrollContext() *scroll.Context { return a.scrollComponent.Context }
 
-// HintsRouter returns the hints router.
-func (a *App) HintsRouter() *hints.Router { return a.hintsComponent.Router }
-
 // EventTap returns the event tap.
-func (a *App) EventTap() eventTap { return a.eventTap }
-
-// ScrollController returns the scroll controller.
-func (a *App) ScrollController() *scroll.Controller { return a.scrollComponent.Controller }
+func (a *App) EventTap() EventTap { return a.eventTap }
 
 // CurrentMode returns the current mode.
 func (a *App) CurrentMode() Mode { return a.state.CurrentMode() }

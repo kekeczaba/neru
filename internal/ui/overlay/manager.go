@@ -12,6 +12,7 @@ import (
 	"sync"
 	"unsafe"
 
+	domainGrid "github.com/y3owk1n/neru/internal/domain/grid"
 	"github.com/y3owk1n/neru/internal/features/action"
 	"github.com/y3owk1n/neru/internal/features/grid"
 	"github.com/y3owk1n/neru/internal/features/hints"
@@ -39,6 +40,41 @@ const (
 type StateChange struct {
 	Prev Mode
 	Next Mode
+}
+
+// ManagerInterface defines the interface for overlay window management.
+// ManagerInterface defines the interface for the overlay manager.
+//
+//nolint:interfacebloat
+type ManagerInterface interface {
+	Show()
+	Hide()
+	Clear()
+	ResizeToActiveScreenSync()
+	SwitchTo(next Mode)
+	Subscribe(fn func(StateChange)) uint64
+	Unsubscribe(id uint64)
+	Destroy()
+	GetMode() Mode
+	GetWindowPtr() unsafe.Pointer
+
+	UseHintOverlay(o *hints.Overlay)
+	UseGridOverlay(o *grid.Overlay)
+	UseActionOverlay(o *action.Overlay)
+	UseScrollOverlay(o *scroll.Overlay)
+
+	GetHintOverlay() *hints.Overlay
+	GetGridOverlay() *grid.Overlay
+	GetActionOverlay() *action.Overlay
+	GetScrollOverlay() *scroll.Overlay
+
+	DrawHintsWithStyle(hs []*hints.Hint, style hints.StyleMode) error
+	DrawActionHighlight(x, y, w, h int)
+	DrawScrollHighlight(x, y, w, h int)
+	DrawGrid(g *domainGrid.Grid, input string, style grid.Style) error
+	UpdateGridMatches(prefix string)
+	ShowSubgrid(cell *domainGrid.Cell, style grid.Style)
+	SetHideUnmatched(hide bool)
 }
 
 // Manager coordinates overlay window management and mode transitions for all overlay types.
@@ -197,7 +233,7 @@ func (m *Manager) DrawScrollHighlight(x, y, w, h int) {
 }
 
 // DrawGrid renders a grid with the specified style using the grid overlay renderer.
-func (m *Manager) DrawGrid(g *grid.Grid, input string, style grid.Style) error {
+func (m *Manager) DrawGrid(g *domainGrid.Grid, input string, style grid.Style) error {
 	if m.gridOverlay == nil {
 		return nil
 	}
@@ -217,7 +253,7 @@ func (m *Manager) UpdateGridMatches(prefix string) {
 }
 
 // ShowSubgrid shows a subgrid for the specified cell.
-func (m *Manager) ShowSubgrid(cell *grid.Cell, style grid.Style) {
+func (m *Manager) ShowSubgrid(cell *domainGrid.Cell, style grid.Style) {
 	if m.gridOverlay == nil {
 		return
 	}

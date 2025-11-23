@@ -38,7 +38,10 @@ func initializeLogger(cfg *config.Config) (*zap.Logger, error) {
 }
 
 // initializeOverlayManager creates and initializes the overlay manager.
-func initializeOverlayManager(log *zap.Logger) *overlay.Manager {
+func initializeOverlayManager(deps *deps, log *zap.Logger) OverlayManager {
+	if deps != nil && deps.OverlayManagerFactory != nil {
+		return deps.OverlayManagerFactory.New(log)
+	}
 	return overlay.Init(log)
 }
 
@@ -71,7 +74,7 @@ func initializeAccessibility(cfg *config.Config, log *zap.Logger) error {
 }
 
 // initializeHotkeyService creates the hotkey service, using the provided dependency or creating a new one.
-func initializeHotkeyService(deps *deps, log *zap.Logger) hotkeyService {
+func initializeHotkeyService(deps *deps, log *zap.Logger) HotkeyService {
 	if deps != nil && deps.Hotkeys != nil {
 		return deps.Hotkeys
 	}
@@ -81,8 +84,10 @@ func initializeHotkeyService(deps *deps, log *zap.Logger) hotkeyService {
 	return mgr
 }
 
-// initializeAppWatcher creates and returns a new application watcher.
-func initializeAppWatcher(log *zap.Logger) *appwatcher.Watcher {
+func initializeAppWatcher(deps *deps, log *zap.Logger) Watcher {
+	if deps != nil && deps.WatcherFactory != nil {
+		return deps.WatcherFactory.New(log)
+	}
 	return appwatcher.NewWatcher(log)
 }
 
@@ -139,18 +144,4 @@ func (a *App) registerOverlays() {
 		a.gridComponent.Context.GetGridOverlay() != nil {
 		a.overlayManager.UseGridOverlay(*a.gridComponent.Context.GetGridOverlay())
 	}
-}
-
-// registerCommandHandlers registers all IPC command handlers.
-func (a *App) registerCommandHandlers() {
-	a.cmdHandlers[domain.CommandPing] = a.handlePing
-	a.cmdHandlers[domain.CommandStart] = a.handleStart
-	a.cmdHandlers[domain.CommandStop] = a.handleStop
-	a.cmdHandlers[domain.GetModeString(domain.ModeHints)] = a.handleHints
-	a.cmdHandlers[domain.GetModeString(domain.ModeGrid)] = a.handleGrid
-	a.cmdHandlers[domain.CommandAction] = a.handleAction
-	a.cmdHandlers[domain.GetModeString(domain.ModeIdle)] = a.handleIdle
-	a.cmdHandlers[domain.CommandStatus] = a.handleStatus
-	a.cmdHandlers[domain.CommandConfig] = a.handleConfig
-	a.cmdHandlers[domain.CommandReloadConfig] = a.handleReloadConfig
 }

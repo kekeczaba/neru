@@ -8,10 +8,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
+	"github.com/y3owk1n/neru/internal/domain/trace"
 	"go.uber.org/zap"
 )
 
@@ -24,6 +24,10 @@ const (
 
 	// ConnectionTimeout is the timeout for establishing a connection.
 	ConnectionTimeout = 2 * time.Second
+
+	// ProtocolVersion is the current IPC protocol version.
+	// Increment this when making breaking changes to the IPC protocol.
+	ProtocolVersion = "1.0.0"
 )
 
 // Standard response codes used to indicate the result of IPC operations.
@@ -39,13 +43,15 @@ const (
 
 // Command represents a command sent through the IPC interface.
 type Command struct {
-	Action string         `json:"action"`
-	Params map[string]any `json:"params,omitempty"`
-	Args   []string       `json:"args,omitempty"`
+	Version string         `json:"version,omitempty"`
+	Action  string         `json:"action"`
+	Params  map[string]any `json:"params,omitempty"`
+	Args    []string       `json:"args,omitempty"`
 }
 
 // Response represents a response returned through the IPC interface.
 type Response struct {
+	Version string `json:"version,omitempty"`
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Code    string `json:"code,omitempty"`
@@ -69,7 +75,7 @@ type Server struct {
 }
 
 // CommandHandler defines the interface for processing IPC commands.
-type CommandHandler func(cmd Command) Response
+type CommandHandler func(ctx context.Context, cmd Command) Response
 
 // GetSocketPath returns the filesystem path to the IPC Unix socket.
 func GetSocketPath() string {
@@ -170,8 +176,12 @@ func (s *Server) Stop() error {
 
 // handleConnection processes a single client connection and executes the received command.
 func (s *Server) handleConnection(conn net.Conn) {
-	reqID := strconv.FormatInt(time.Now().UnixNano(), 10)
-	log := s.logger.With(zap.String("req_id", reqID))
+	traceID := trace.NewID()
+	log := s.logger.With(zap.String("trace_id", traceID.String()))
+
+	// Create context with trace ID
+	ctx := trace.WithTraceID(context.Background(), traceID)
+
 	defer func() {
 		err := conn.Close()
 		if err != nil {
@@ -206,9 +216,36 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
-	log.Info("Received command", zap.String("action", cmd.Action))
+	log.Info(
+		"Received command",
+		zap.String("action", cmd.Action),
+		zap.String("version", cmd.Version),
+	)
 
-	response := s.handler(cmd)
+	// Validate protocol version if provided
+	if cmd.Version != "" && cmd.Version != ProtocolVersion {
+		log.Warn("Protocol version mismatch",
+			zap.String("client_version", cmd.Version),
+			zap.String("server_version", ProtocolVersion))
+		encErr := encoder.Encode(Response{
+			Version: ProtocolVersion,
+			Success: false,
+			Message: fmt.Sprintf(
+				"protocol version mismatch: client=%s, server=%s",
+				cmd.Version,
+				ProtocolVersion,
+			),
+			Code: "ERR_VERSION_MISMATCH",
+		})
+		if encErr != nil {
+			log.Error("Failed to encode version mismatch response", zap.Error(encErr))
+		}
+		return
+	}
+
+	response := s.handler(ctx, cmd)
+	// Always include server version in response
+	response.Version = ProtocolVersion
 	err = encoder.Encode(response)
 	if err != nil {
 		log.Error("Failed to encode response", zap.Error(err))
@@ -266,6 +303,11 @@ func (c *Client) SendWithTimeout(cmd Command, timeout time.Duration) (Response, 
 
 	encoder := json.NewEncoder(conn)
 	decoder := json.NewDecoder(conn)
+
+	// Set protocol version if not already set
+	if cmd.Version == "" {
+		cmd.Version = ProtocolVersion
+	}
 
 	err = encoder.Encode(cmd)
 	if err != nil {

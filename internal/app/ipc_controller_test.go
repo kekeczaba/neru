@@ -36,9 +36,9 @@ func TestIPCController_HandlePing(t *testing.T) {
 	controller := newTestController()
 	controller.RegisterHandlers()
 
-	context := context.Background()
+	ctx := context.Background()
 
-	commandResponse := controller.HandleCommand(context, ipc.Command{Action: domain.CommandPing})
+	commandResponse := controller.HandleCommand(ctx, ipc.Command{Action: domain.CommandPing})
 
 	if !commandResponse.Success {
 		t.Errorf("Expected success=true, got %v", commandResponse.Success)
@@ -57,13 +57,13 @@ func TestIPCController_HandleStart(t *testing.T) {
 	controller := newTestController()
 	controller.RegisterHandlers()
 
-	context := context.Background()
+	ctx := context.Background()
 
 	// Disable state first (NewAppState starts with enabled=true)
 	controller.AppState.SetEnabled(false)
 
 	// First start should succeed
-	commandResponse := controller.HandleCommand(context, ipc.Command{Action: domain.CommandStart})
+	commandResponse := controller.HandleCommand(ctx, ipc.Command{Action: domain.CommandStart})
 	if !commandResponse.Success {
 		t.Errorf("Expected success=true, got %v", commandResponse.Success)
 	}
@@ -73,7 +73,7 @@ func TestIPCController_HandleStart(t *testing.T) {
 	}
 
 	// Second start should fail (already running)
-	commandResponse = controller.HandleCommand(context, ipc.Command{Action: domain.CommandStart})
+	commandResponse = controller.HandleCommand(ctx, ipc.Command{Action: domain.CommandStart})
 	if commandResponse.Success {
 		t.Error("Expected success=false when already running")
 	}
@@ -87,13 +87,13 @@ func TestIPCController_HandleStop(t *testing.T) {
 	controller := newTestController()
 	controller.RegisterHandlers()
 
-	context := context.Background()
+	ctx := context.Background()
 
 	// Disable state first (NewAppState starts with enabled=true)
 	controller.AppState.SetEnabled(false)
 
 	// Stop when not running should fail
-	commandResponse := controller.HandleCommand(context, ipc.Command{Action: domain.CommandStop})
+	commandResponse := controller.HandleCommand(ctx, ipc.Command{Action: domain.CommandStop})
 	if commandResponse.Success {
 		t.Error("Expected success=false when not running")
 	}
@@ -105,7 +105,7 @@ func TestIPCController_HandleStop(t *testing.T) {
 	// Start then stop should succeed
 	controller.AppState.SetEnabled(true)
 
-	commandResponse = controller.HandleCommand(context, ipc.Command{Action: domain.CommandStop})
+	commandResponse = controller.HandleCommand(ctx, ipc.Command{Action: domain.CommandStop})
 	if !commandResponse.Success {
 		t.Errorf("Expected success=true, got %v", commandResponse.Success)
 	}
@@ -119,9 +119,9 @@ func TestIPCController_HandleConfig(t *testing.T) {
 	controller := newTestController()
 	controller.RegisterHandlers()
 
-	context := context.Background()
+	ctx := context.Background()
 
-	commandResponse := controller.HandleCommand(context, ipc.Command{Action: domain.CommandConfig})
+	commandResponse := controller.HandleCommand(ctx, ipc.Command{Action: domain.CommandConfig})
 	if !commandResponse.Success {
 		t.Errorf("Expected success=true, got %v", commandResponse.Success)
 	}
@@ -140,9 +140,9 @@ func TestIPCController_HandleMetrics(t *testing.T) {
 	controller := newTestController()
 	controller.RegisterHandlers()
 
-	context := context.Background()
+	ctx := context.Background()
 
-	commandResponse := controller.HandleCommand(context, ipc.Command{Action: domain.CommandMetrics})
+	commandResponse := controller.HandleCommand(ctx, ipc.Command{Action: domain.CommandMetrics})
 	if !commandResponse.Success {
 		t.Errorf("Expected success=true, got %v", commandResponse.Success)
 	}
@@ -157,9 +157,9 @@ func TestIPCController_UnknownCommand(t *testing.T) {
 	controller := newTestController()
 	controller.RegisterHandlers()
 
-	context := context.Background()
+	ctx := context.Background()
 
-	commandResponse := controller.HandleCommand(context, ipc.Command{Action: "unknown_command"})
+	commandResponse := controller.HandleCommand(ctx, ipc.Command{Action: "unknown_command"})
 	if commandResponse.Success {
 		t.Error("Expected success=false for unknown command")
 	}

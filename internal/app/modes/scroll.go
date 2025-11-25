@@ -17,9 +17,9 @@ func (h *Handler) StartInteractiveScroll() {
 	h.Scroll.Context.SetLastKey("")
 	h.ExitMode()
 
-	context := context.Background()
+	ctx := context.Background()
 
-	showScrollOverlayErr := h.ScrollService.ShowScrollOverlay(context)
+	showScrollOverlayErr := h.ScrollService.ShowScrollOverlay(ctx)
 	if showScrollOverlayErr != nil {
 		h.Logger.Error("Failed to show scroll overlay", zap.Error(showScrollOverlayErr))
 	}
@@ -50,7 +50,7 @@ func (h *Handler) handleGenericScrollKey(key string, lastScrollKey *string) {
 
 	var handleScrollErr error
 
-	context := context.Background()
+	ctx := context.Background()
 
 	if len(key) == 1 {
 		if h.handleControlScrollKey(key, *lastScrollKey, lastScrollKey) {
@@ -89,7 +89,7 @@ func (h *Handler) handleGenericScrollKey(key string, lastScrollKey *string) {
 		if operation == "top" {
 			h.Logger.Info("gg detected - scroll to top")
 			handleScrollErr = h.ScrollService.Scroll(
-				context,
+				ctx,
 				services.ScrollDirectionUp,
 				services.ScrollAmountEnd,
 			)
@@ -102,7 +102,7 @@ func (h *Handler) handleGenericScrollKey(key string, lastScrollKey *string) {
 		if ok && operation == "bottom" {
 			h.Logger.Info("G key detected - scroll to bottom")
 			handleScrollErr = h.ScrollService.Scroll(
-				context,
+				ctx,
 				services.ScrollDirectionDown,
 				services.ScrollAmountEnd,
 			)
@@ -131,7 +131,7 @@ func (h *Handler) handleControlScrollKey(key string, lastKey string, lastScrollK
 		operation, _, ok := scroll.ParseKey(key, lastKey, h.Logger)
 		if ok {
 			*lastScrollKey = ""
-			context := context.Background()
+			ctx := context.Background()
 
 			var handleControlScrollKeyErr error
 
@@ -139,14 +139,14 @@ func (h *Handler) handleControlScrollKey(key string, lastKey string, lastScrollK
 			case "half_down":
 				h.Logger.Info("Ctrl+D detected - half page down")
 				handleControlScrollKeyErr = h.ScrollService.Scroll(
-					context,
+					ctx,
 					services.ScrollDirectionDown,
 					services.ScrollAmountHalfPage,
 				)
 			case "half_up":
 				h.Logger.Info("Ctrl+U detected - half page up")
 				handleControlScrollKeyErr = h.ScrollService.Scroll(
-					context,
+					ctx,
 					services.ScrollDirectionUp,
 					services.ScrollAmountHalfPage,
 				)
@@ -166,13 +166,13 @@ func (h *Handler) handleDirectionalScrollKey(key string, lastKey string) error {
 		return nil
 	}
 
-	context := context.Background()
+	ctx := context.Background()
 
 	switch key {
 	case "j":
 		if operation == "down" {
 			return h.ScrollService.Scroll(
-				context,
+				ctx,
 				services.ScrollDirectionDown,
 				services.ScrollAmountChar,
 			)
@@ -180,7 +180,7 @@ func (h *Handler) handleDirectionalScrollKey(key string, lastKey string) error {
 	case "k":
 		if operation == "up" {
 			return h.ScrollService.Scroll(
-				context,
+				ctx,
 				services.ScrollDirectionUp,
 				services.ScrollAmountChar,
 			)
@@ -188,7 +188,7 @@ func (h *Handler) handleDirectionalScrollKey(key string, lastKey string) error {
 	case "h":
 		if operation == "left" {
 			return h.ScrollService.Scroll(
-				context,
+				ctx,
 				services.ScrollDirectionLeft,
 				services.ScrollAmountChar,
 			)
@@ -196,7 +196,7 @@ func (h *Handler) handleDirectionalScrollKey(key string, lastKey string) error {
 	case "l":
 		if operation == "right" {
 			return h.ScrollService.Scroll(
-				context,
+				ctx,
 				services.ScrollDirectionRight,
 				services.ScrollAmountChar,
 			)

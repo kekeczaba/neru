@@ -132,7 +132,7 @@ func (a *App) handleScreenParametersChange() {
 
 			// Regenerate hints with updated screen bounds
 			// Use the hint service which will collect elements with new bounds and apply proper styling
-			context := context.Background()
+			ctx := context.Background()
 
 			filter := ports.DefaultElementFilter()
 			filter.IncludeMenubar = a.config.Hints.IncludeMenubarHints
@@ -141,7 +141,7 @@ func (a *App) handleScreenParametersChange() {
 			filter.IncludeNotificationCenter = a.config.Hints.IncludeNCHints
 
 			// Regenerate hints using the service which preserves styling
-			domainHints, showHintsErr := a.hintService.ShowHints(context, filter)
+			domainHints, showHintsErr := a.hintService.ShowHints(ctx, filter)
 			if showHintsErr != nil {
 				a.logger.Error("Failed to refresh hints after screen change", zap.Error(showHintsErr))
 
@@ -166,9 +166,9 @@ func (a *App) handleScreenParametersChange() {
 		}
 
 		// Redraw scroll highlight with updated screen bounds
-		context := context.Background()
+		ctx := context.Background()
 
-		showScrollOverlayErr := a.scrollService.ShowScrollOverlay(context)
+		showScrollOverlayErr := a.scrollService.ShowScrollOverlay(ctx)
 		if showScrollOverlayErr != nil {
 			a.logger.Error(
 				"Failed to refresh scroll overlay after screen change",

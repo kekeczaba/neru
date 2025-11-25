@@ -26,23 +26,23 @@ func TestTraceID(t *testing.T) {
 	})
 
 	t.Run("Context propagation", func(t *testing.T) {
-		context := context.Background()
-		contextID := trace.NewID()
+		ctx := context.Background()
+		ctxID := trace.NewID()
 
-		context = trace.WithTraceID(context, contextID)
-		got := trace.FromContext(context)
+		ctx = trace.WithTraceID(ctx, ctxID)
+		got := trace.FromContext(ctx)
 
-		if got != contextID {
-			t.Errorf("FromContext() = %v, want %v", got, contextID)
+		if got != ctxID {
+			t.Errorf("Fromctx() = %v, want %v", got, ctxID)
 		}
 	})
 
-	t.Run("FromContext returns empty for missing ID", func(t *testing.T) {
-		context := context.Background()
-		got := trace.FromContext(context)
+	t.Run("Fromctx returns empty for missing ID", func(t *testing.T) {
+		ctx := context.Background()
+		got := trace.FromContext(ctx)
 
 		if got != "" {
-			t.Errorf("FromContext() = %v, want empty string", got)
+			t.Errorf("Fromctx() = %v, want empty string", got)
 		}
 	})
 

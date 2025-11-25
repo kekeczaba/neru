@@ -179,11 +179,11 @@ func TestHintService_ShowHints(t *testing.T) {
 
 			service := services.NewHintService(mockAcc, mockOverlay, generator, logger)
 
-			context := context.Background()
+			ctx := context.Background()
 			filter := ports.DefaultElementFilter()
 
 			// Act
-			hints, hintsErr := service.ShowHints(context, filter)
+			hints, hintsErr := service.ShowHints(ctx, filter)
 
 			// Assert
 			if testCase.wantErr && hintsErr == nil {
@@ -247,8 +247,8 @@ func TestHintService_HideHints(t *testing.T) {
 
 			service := services.NewHintService(mockAcc, mockOverlay, generator, logger)
 
-			context := context.Background()
-			hideHintsErr := service.HideHints(context)
+			ctx := context.Background()
+			hideHintsErr := service.HideHints(ctx)
 
 			if (hideHintsErr != nil) != testCase.wantErr {
 				t.Errorf("HideHints() error = %v, wantErr %v", hideHintsErr, testCase.wantErr)
@@ -313,8 +313,8 @@ func TestHintService_RefreshHints(t *testing.T) {
 
 			service := services.NewHintService(mockAcc, mockOverlay, generator, logger)
 
-			context := context.Background()
-			refreshHintsErr := service.RefreshHints(context)
+			ctx := context.Background()
+			refreshHintsErr := service.RefreshHints(ctx)
 
 			if (refreshHintsErr != nil) != testCase.wantErr {
 				t.Errorf("RefreshHints() error = %v, wantErr %v", refreshHintsErr, testCase.wantErr)

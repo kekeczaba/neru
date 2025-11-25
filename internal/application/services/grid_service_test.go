@@ -104,9 +104,9 @@ func TestGridService_ShowGrid(t *testing.T) {
 			}
 
 			service := services.NewGridService(mockOverlay, logger)
-			context := context.Background()
+			ctx := context.Background()
 
-			showGridErr := service.ShowGrid(context, testCase.rows, testCase.cols)
+			showGridErr := service.ShowGrid(ctx, testCase.rows, testCase.cols)
 
 			if (showGridErr != nil) != testCase.wantErr {
 				t.Errorf("ShowGrid() error = %v, wantErr %v", showGridErr, testCase.wantErr)
@@ -154,9 +154,9 @@ func TestGridService_HideGrid(t *testing.T) {
 			}
 
 			service := services.NewGridService(mockOverlay, logger)
-			context := context.Background()
+			ctx := context.Background()
 
-			hideGridErr := service.HideGrid(context)
+			hideGridErr := service.HideGrid(ctx)
 
 			if (hideGridErr != nil) != testCase.wantErr {
 				t.Errorf("HideGrid() error = %v, wantErr %v", hideGridErr, testCase.wantErr)

